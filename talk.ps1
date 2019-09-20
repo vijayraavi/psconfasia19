@@ -1,12 +1,14 @@
+# Slides: https://github.com/PowerShellAsia/2019
 break
 
 $prep = {
     start 'https://msit.powerbi.com/groups/cc40ec7d-856a-4196-b20c-49030744d9c4/reports/3d753385-b049-45da-8962-a332ee144ebc/ReportSection'
     start 'https://ms.portal.azure.com/#@microsoft.onmicrosoft.com/resource/subscriptions/c011b157-620d-485a-808a-513bba1f4f21/resourceGroups/AutomatedLabTelemetry/providers/microsoft.insights/components/automatedlabinsight/overview'
+    start ./Telemetry.pptx
     $null = Set-AzContext -Subscription AL4
     $PSDefaultParameterValues = @{
-        '*:ResourceGroupName' = 'AutomatedLabTelemetry'
-        '*AzSql*:Servername' = 'automatedlab'
+        '*:ResourceGroupName'     = 'AutomatedLabTelemetry'
+        '*AzSql*:Servername'      = 'automatedlab'
         '*:AutomationAccountName' = 'telemetryautomation'
     }
 }
@@ -19,7 +21,7 @@ $prep = {
 # For this purpose we use PSFramework (https://psframework.org)
 
 # It is very convenient to control a compliant opt-in by using an environment variable that the user or IT department can control
-Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.OptInVariable -Value AUTOMATEDLAB_TELEMETRY_OPTIN -Initialize -Validation String
+Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.OptInVariable -Value AUTOMATEDLAB_TELEMETRY_OPTIN
 
 # Application Insights sends information that we do not want, and that most security-minded people would not like to see
 # getting sent uncontrollably, like the host name and other data. Should you want this information, simply set RemovePii to $false
@@ -28,10 +30,11 @@ Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.RemovePii -Value $true
 # Lastly, to make any telemetry work, an instrumentation key is required
 # This is available in your Application Insights resource
 $aiKey = (Get-AzApplicationInsights -ResourceGroupName AutomatedLabTelemetry).InstrumentationKey
-Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.ApplicationInsights.InstrumentationKey -Value $aiKey -Initialize -Validation String
+Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.ApplicationInsights.InstrumentationKey -Value $aiKey
 
 # Apart from environmental variables, the user can opt-in manually using the following LoC
-Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.OptIn -Value $true -PassThru | Register-PSFConfig
+Set-PSFConfig -Module TelemetryHelper -Name AutomatedLab.OptIn -Value $true -PassThru |
+    Register-PSFConfig
 
 
 # After all that configuration, it is time to actually use the telemetry
@@ -63,18 +66,26 @@ Send-THEvent -EventName LabStarted -PropertiesHash $properties -MetricsHash $met
 # or up to 730 days for an additional charge. For AutomatedLab, we rather have our data in a SQL database
 $cred = Get-Credential saruman
 Set-AzSqlServerFirewallRule -FirewallRuleName jhp -StartIpAddress (Get-PublicIpAddress) -EndIpAddress (Get-PublicIpAddress)
-Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly -Query "SELECT TOP 10 * FROM dbo.labInfo WHERE City='Düsseldorf'" -Credential $cred
+Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly `
+    -Query "SELECT * FROM dbo.labInfo WHERE City='Markt Indersdorf'" -Credential $cred
+
+Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly `
+    -Query "SELECT City FROM dbo.labInfo" -Credential $cred | 
+    Group-Object City | sort Count -Descending | select -First 10
 
 # So, why is there nothing from Bengaluru?
-Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly -Query "SELECT TOP 10 * FROM dbo.labInfo WHERE City='Bengaluru'" -Credential $cred
+Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly `
+    -Query "SELECT TOP 10 * FROM dbo.labInfo WHERE City='Bengaluru'" -Credential $cred
 
 # Continuous Export within Application Insights only exports to a blob storage account
 $ctx = (Get-AzStorageAccount -Name automatedlabtelemetry -ErrorAction SilentlyContinue).Context
-$null = Get-AzStorageBlob -Container telemetry -Context $ctx | Get-AzStorageBlobContent -Destination .
+$null = Get-AzStorageBlob -Container telemetry -Context $ctx | 
+Get-AzStorageBlobContent -Destination .
 
 # Let's have a look at the compressed JSON content
 $labEvent = Get-ChildItem -Path .\automatedlabinsight_03367df3a45f4ba89163e73999e2c7b6 -Recurse -File |
-    Sort-Object -Property PSParentPath -Descending | Select-Object -First 1 | Get-Content -Raw | ConvertFrom-Json
+    Sort-Object -Property PSParentPath -Descending | 
+    Select-Object -First 1 | Get-Content -Raw | ConvertFrom-Json
 
 # This is mainly what we are after
 $labEvent.context
@@ -94,11 +105,13 @@ while ((Get-AzAutomationJob -Id $job.JobId).Status -ne 'Completed')
     Start-Sleep -Seconds 1
 }
 
-$jobVerbose = Get-AzAutomationJobOutput -Id $job.JobId -Stream Verbose | Get-AzAutomationJobOutputRecord
+$jobVerbose = Get-AzAutomationJobOutput -Id $job.JobId -Stream Verbose | 
+    Get-AzAutomationJobOutputRecord
 $jobVerbose.Value.Message
 
 # With that done, we can do anything to the data
-Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly -Query "SELECT TOP 10 * FROM dbo.labInfo WHERE City='Bengaluru'" -Credential $cred
+Invoke-DbaSqlcmd -ServerInstance automatedlab.database.windows.net -Database telly `
+    -Query "SELECT TOP 10 * FROM dbo.labInfo WHERE City='Bengaluru'" -Credential $cred
 
 # Power BI is just one of the tools for this job, it helps create convincing reports
 start "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe" C:\Users\janhe\OneDrive\documents\ALInsightsAzSql.pbix
